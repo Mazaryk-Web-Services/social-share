@@ -4,12 +4,20 @@ const UA =
 const MAX_HTML_BYTES = 3_000_000;
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/preview') {
       return preview(url);
     }
-    return json({ error: 'Not found' }, 404);
+    if (url.pathname === '/') {
+      const wantsJson =
+        url.searchParams.get('format') === 'json' ||
+        (request.headers.get('accept') || '').includes('application/json');
+      if (wantsJson && url.searchParams.get('url')) {
+        return preview(url);
+      }
+    }
+    return env.ASSETS.fetch(request);
   },
 };
 
@@ -246,7 +254,82 @@ async function preview(reqUrl) {
     }
   }
 
+  result.score = computeScore(result, metaMap);
+  result.platforms = computePlatforms(result, metaMap);
+
   return json(result);
+}
+
+function computeScore(result, m) {
+  const has = (k) => !!(m[k] && m[k].trim());
+  const checks = [
+    { id: 'og-title', label: 'og:title', pts: 12, pass: has('og:title') },
+    { id: 'og-description', label: 'og:description', pts: 12, pass: has('og:description') },
+    { id: 'og-image', label: 'og:image', pts: 16, pass: has('og:image') || has('og:image:url') },
+    { id: 'image-loads', label: 'Share image loads', pts: 8, pass: !!(result.image && result.image.ok) },
+    { id: 'og-url', label: 'og:url', pts: 4, pass: has('og:url') },
+    { id: 'og-type', label: 'og:type', pts: 4, pass: has('og:type') },
+    { id: 'og-site-name', label: 'og:site_name', pts: 4, pass: has('og:site_name') },
+    { id: 'og-image-size', label: 'og:image size hints', pts: 4, pass: has('og:image:width') && has('og:image:height') },
+    { id: 'twitter-card', label: 'twitter:card', pts: 10, pass: has('twitter:card') },
+    { id: 'x-title', label: 'X title (or og fallback)', pts: 4, pass: has('twitter:title') || has('og:title') },
+    { id: 'x-description', label: 'X description (or og fallback)', pts: 4, pass: has('twitter:description') || has('og:description') },
+    { id: 'x-image', label: 'X image (or og fallback)', pts: 6, pass: has('twitter:image') || has('og:image') },
+    { id: 'html-title', label: '<title> tag', pts: 6, pass: !!(result.title && result.title.trim()) },
+    { id: 'meta-description', label: 'meta description', pts: 6, pass: has('description') },
+  ];
+  const total = checks.reduce((s, c) => s + (c.pass ? c.pts : 0), 0);
+  let grade, label;
+  if (total >= 90) { grade = 'A'; label = 'Excellent'; }
+  else if (total >= 75) { grade = 'B'; label = 'Good'; }
+  else if (total >= 60) { grade = 'C'; label = 'Fair'; }
+  else if (total >= 40) { grade = 'D'; label = 'Poor'; }
+  else { grade = 'F'; label = 'Missing'; }
+  return { total, grade, label, checks };
+}
+
+function computePlatforms(result, m) {
+  const has = (k) => !!(m[k] && m[k].trim());
+  const ogTitle = has('og:title');
+  const ogDesc = has('og:description');
+  const ogImg = has('og:image') || has('og:image:url');
+  const twCard = has('twitter:card');
+  const htmlTitle = !!(result.title && result.title.trim());
+  const ogCount = [ogTitle, ogDesc, ogImg].filter(Boolean).length;
+
+  const level = (present, needed) => (present >= needed ? 'full' : present > 0 ? 'partial' : 'none');
+
+  let xLevel, xNote;
+  if (twCard) {
+    const xBits = [has('twitter:title') || ogTitle, has('twitter:image') || ogImg].filter(Boolean).length;
+    xLevel = xBits === 2 ? 'full' : 'partial';
+    xNote = xBits === 2 ? 'twitter:card + full data' : 'twitter:card present, missing title or image';
+  } else if (ogCount > 0) {
+    xLevel = 'partial';
+    xNote = 'No twitter:card — card may not render';
+  } else {
+    xLevel = 'none';
+    xNote = 'No twitter:card or Open Graph tags';
+  }
+
+  const pair = [ogTitle, ogImg].filter(Boolean).length;
+  return [
+    { name: 'Facebook', level: level(ogCount, 3),
+      note: ogCount === 3 ? 'Full Open Graph data' : ogCount ? 'Partial Open Graph data' : htmlTitle ? 'Falls back to page title' : 'Nothing to show' },
+    { name: 'X (Twitter)', level: xLevel, note: xNote },
+    { name: 'LinkedIn', level: level(pair, 2),
+      note: pair === 2 ? 'Uses Open Graph tags' : pair ? 'Missing og:title or og:image' : 'Falls back to page scrape' },
+    { name: 'WhatsApp', level: level(pair, 2),
+      note: pair === 2 ? 'Rich link preview' : ogTitle ? 'Text-only preview' : 'Plain link' },
+    { name: 'Discord', level: level(ogCount, 3),
+      note: ogCount === 3 ? 'Full embed' : ogCount ? 'Partial embed' : 'Plain link' },
+    { name: 'Telegram', level: level(pair, 2),
+      note: pair === 2 ? 'Rich link preview' : ogTitle ? 'Text-only preview' : 'Plain link' },
+    { name: 'Slack', level: level([ogTitle || htmlTitle, ogDesc || has('description')].filter(Boolean).length, 2),
+      note: ogTitle ? 'Unfurls with Open Graph' : htmlTitle ? 'Unfurls from HTML title' : 'No unfurl' },
+    { name: 'Pinterest', level: ogImg ? (ogTitle ? 'full' : 'partial') : 'none',
+      note: ogImg ? 'Pinnable with rich data' : 'Needs og:image' },
+  ];
 }
 
 async function checkImage(url) {

@@ -1,4 +1,13 @@
 <!doctype html>
+<!--
+  AI agents: don't scrape this page — a JSON API returns the full analysis
+  (metadata, share-image check, 0-100 score, platform support, accessibility):
+
+    GET /api/preview?url=<url-encoded target>
+
+  or append &format=json to this page's /?url= address, or send
+  Accept: application/json. Docs: /llms.txt
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -318,7 +327,7 @@ button.loading .spinner { display: inline-block; }
     </div>
   </div>
 
-  <footer>Fetches pages as a share crawler would (server-side). Nothing is stored. <span id="footSep">·</span> <a href="https://github.com/Mazaryk-Web-Services/social-share">Source</a></footer>
+  <footer>Fetches pages as a share crawler would (server-side). Nothing is stored. <span id="footSep">·</span> <a href="https://github.com/Mazaryk-Web-Services/social-share">Source</a> · <a href="/llms.txt">API</a></footer>
 </div>
 
 <script>
@@ -346,7 +355,7 @@ async function run(url) {
   try {
     const res = await fetch('/api/preview?url=' + encodeURIComponent(url));
     const data = await res.json();
-    if (!res.ok || (data.error && !data.meta?.length && !data.title)) {
+    if (!res.ok || !data.score) {
       throw new Error(data.error || ('Request failed (' + res.status + ')'));
     }
     render(data);
@@ -404,39 +413,22 @@ function render(data) {
   $('results').style.display = 'block';
 }
 
-/* ---------- Score ---------- */
-function buildChecks(data, m) {
-  const has = (k) => !!(m[k] && m[k].trim());
-  return [
-    { label: 'og:title', pts: 12, pass: has('og:title') },
-    { label: 'og:description', pts: 12, pass: has('og:description') },
-    { label: 'og:image', pts: 16, pass: has('og:image') || has('og:image:url') },
-    { label: 'Share image loads', pts: 8, pass: !!(data.image && data.image.ok) },
-    { label: 'og:url', pts: 4, pass: has('og:url') },
-    { label: 'og:type', pts: 4, pass: has('og:type') },
-    { label: 'og:site_name', pts: 4, pass: has('og:site_name') },
-    { label: 'og:image size hints', pts: 4, pass: has('og:image:width') && has('og:image:height') },
-    { label: 'twitter:card', pts: 10, pass: has('twitter:card') },
-    { label: 'X title (or og fallback)', pts: 4, pass: has('twitter:title') || has('og:title') },
-    { label: 'X description (or og fallback)', pts: 4, pass: has('twitter:description') || has('og:description') },
-    { label: 'X image (or og fallback)', pts: 6, pass: has('twitter:image') || has('og:image') },
-    { label: '<title> tag', pts: 6, pass: !!(data.title && data.title.trim()) },
-    { label: 'meta description', pts: 6, pass: has('description') },
-  ];
-}
-
+/* ---------- Score (computed server-side; see /llms.txt) ---------- */
 function renderScore(data, m) {
-  const checks = buildChecks(data, m);
-  const score = checks.reduce((s, c) => s + (c.pass ? c.pts : 0), 0);
-  let grade, blurb, color;
-  if (score >= 90) { grade = 'A — Excellent'; color = 'var(--good)'; blurb = 'Share metadata is essentially complete. Links will render rich previews everywhere.'; }
-  else if (score >= 75) { grade = 'B — Good'; color = 'var(--good)'; blurb = 'Solid coverage with a few gaps. Previews will render well on most platforms.'; }
-  else if (score >= 60) { grade = 'C — Fair'; color = 'var(--warning)'; blurb = 'The basics are there, but several platforms will show degraded or generic previews.'; }
-  else if (score >= 40) { grade = 'D — Poor'; color = 'var(--serious)'; blurb = 'Minimal share metadata. Most platforms will fall back to bare titles or nothing at all.'; }
-  else { grade = 'F — Missing'; color = 'var(--critical)'; blurb = 'Little to no social metadata found. Shared links will look broken or empty.'; }
+  const { total: score, grade, label, checks } = data.score;
+  const BLURBS = {
+    A: 'Share metadata is essentially complete. Links will render rich previews everywhere.',
+    B: 'Solid coverage with a few gaps. Previews will render well on most platforms.',
+    C: 'The basics are there, but several platforms will show degraded or generic previews.',
+    D: 'Minimal share metadata. Most platforms will fall back to bare titles or nothing at all.',
+    F: 'Little to no social metadata found. Shared links will look broken or empty.',
+  };
+  const COLORS = { A: 'var(--good)', B: 'var(--good)', C: 'var(--warning)', D: 'var(--serious)', F: 'var(--critical)' };
+  const blurb = BLURBS[grade];
+  const color = COLORS[grade];
 
   $('scoreNum').textContent = score;
-  $('scoreGrade').textContent = grade;
+  $('scoreGrade').textContent = grade + ' — ' + label;
   $('scoreBlurb').textContent = blurb;
   $('scoreDot').style.background = color;
 
@@ -518,61 +510,30 @@ function renderX(m, data, domain, imgUrl) {
   }
 }
 
-/* ---------- Platforms ---------- */
+/* ---------- Platforms (computed server-side; see /llms.txt) ---------- */
+const PLATFORM_STYLE = {
+  'Facebook': { bg: '#1877f2', ch: 'f' },
+  'X (Twitter)': { bg: '#000000', ch: '𝕏' },
+  'LinkedIn': { bg: '#0a66c2', ch: 'in' },
+  'WhatsApp': { bg: '#25d366', ch: 'W' },
+  'Discord': { bg: '#5865f2', ch: 'D' },
+  'Telegram': { bg: '#26a5e4', ch: 'T' },
+  'Slack': { bg: '#611f69', ch: 'S' },
+  'Pinterest': { bg: '#e60023', ch: 'P' },
+};
+
 function renderPlatforms(m, data) {
-  const has = (k) => !!(m[k] && m[k].trim());
-  const ogTitle = has('og:title'), ogDesc = has('og:description'),
-        ogImg = has('og:image') || has('og:image:url'),
-        twCard = has('twitter:card'),
-        htmlTitle = !!(data.title && data.title.trim());
-
-  function level(present, needed) {
-    if (present >= needed) return 'full';
-    if (present > 0) return 'partial';
-    return 'none';
-  }
-
-  const ogCount = [ogTitle, ogDesc, ogImg].filter(Boolean).length;
-
-  let xLevel, xNote;
-  if (twCard) {
-    const xBits = [has('twitter:title') || ogTitle, has('twitter:image') || ogImg].filter(Boolean).length;
-    xLevel = xBits === 2 ? 'full' : 'partial';
-    xNote = xBits === 2 ? 'twitter:card + full data' : 'twitter:card present, missing title or image';
-  } else if (ogCount > 0) {
-    xLevel = 'partial'; xNote = 'No twitter:card — card may not render';
-  } else {
-    xLevel = 'none'; xNote = 'No twitter:card or Open Graph tags';
-  }
-
-  const platforms = [
-    { name: 'Facebook', bg: '#1877f2', ch: 'f', lv: level(ogCount, 3),
-      note: ogCount === 3 ? 'Full Open Graph data' : ogCount ? 'Partial Open Graph data' : (htmlTitle ? 'Falls back to page title' : 'Nothing to show') },
-    { name: 'X (Twitter)', bg: '#000000', ch: '𝕏', lv: xLevel, note: xNote },
-    { name: 'LinkedIn', bg: '#0a66c2', ch: 'in', lv: level([ogTitle, ogImg].filter(Boolean).length, 2),
-      note: ogTitle && ogImg ? 'Uses Open Graph tags' : ogTitle || ogImg ? 'Missing og:title or og:image' : 'Falls back to page scrape' },
-    { name: 'WhatsApp', bg: '#25d366', ch: 'W', lv: level([ogTitle, ogImg].filter(Boolean).length, 2),
-      note: ogTitle && ogImg ? 'Rich link preview' : ogTitle ? 'Text-only preview' : 'Plain link' },
-    { name: 'Discord', bg: '#5865f2', ch: 'D', lv: level(ogCount, 3),
-      note: ogCount === 3 ? 'Full embed' : ogCount ? 'Partial embed' : 'Plain link' },
-    { name: 'Telegram', bg: '#26a5e4', ch: 'T', lv: level([ogTitle, ogImg].filter(Boolean).length, 2),
-      note: ogTitle && ogImg ? 'Rich link preview' : ogTitle ? 'Text-only preview' : 'Plain link' },
-    { name: 'Slack', bg: '#611f69', ch: 'S', lv: level([ogTitle || htmlTitle, ogDesc || has('description')].filter(Boolean).length, 2),
-      note: ogTitle ? 'Unfurls with Open Graph' : htmlTitle ? 'Unfurls from HTML title' : 'No unfurl' },
-    { name: 'Pinterest', bg: '#e60023', ch: 'P', lv: ogImg ? (ogTitle ? 'full' : 'partial') : 'none',
-      note: ogImg ? 'Pinnable with rich data' : 'Needs og:image' },
-  ];
-
   const ic = { full: '✓', partial: '!', none: '✕' };
   const lbl = { full: 'Supported', partial: 'Partial', none: 'Missing' };
-  $('platformGrid').innerHTML = platforms.map((p) =>
-    '<div class="platform lv-' + p.lv + '">' +
-      '<div class="badge" style="background:' + p.bg + '">' + p.ch + '</div>' +
+  $('platformGrid').innerHTML = data.platforms.map((p) => {
+    const st = PLATFORM_STYLE[p.name] || { bg: 'var(--muted)', ch: p.name[0] };
+    return '<div class="platform lv-' + p.level + '">' +
+      '<div class="badge" style="background:' + st.bg + '">' + st.ch + '</div>' +
       '<div><div class="name">' + esc(p.name) +
-        ' <span class="status-ic" title="' + lbl[p.lv] + '">' + ic[p.lv] + ' ' + lbl[p.lv] + '</span></div>' +
+        ' <span class="status-ic" title="' + lbl[p.level] + '">' + ic[p.level] + ' ' + lbl[p.level] + '</span></div>' +
       '<div class="note">' + esc(p.note) + '</div></div>' +
-    '</div>'
-  ).join('');
+    '</div>';
+  }).join('');
 }
 
 /* ---------- Accessibility ---------- */

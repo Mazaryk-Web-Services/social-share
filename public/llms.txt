@@ -1,0 +1,57 @@
+# Social Share Preview — API guide for AI agents
+
+social-share.mazaryk.com analyzes any public URL's social sharing metadata:
+Open Graph / Twitter tags, share-image validity, per-platform link-preview
+support, a 0-100 shareability score, and an accessibility snapshot.
+
+Agents should call the JSON API directly instead of scraping the HTML page.
+
+## Endpoint
+
+    GET https://social-share.mazaryk.com/api/preview?url=<url-encoded target>
+
+Equivalent forms (same JSON response):
+
+    GET https://social-share.mazaryk.com/?url=<target>&format=json
+    GET https://social-share.mazaryk.com/?url=<target>   with header  Accept: application/json
+
+No authentication. The scheme may be omitted (https:// is assumed).
+The target is fetched server-side with a share-crawler user agent, so the
+response reflects what social platform crawlers actually see.
+
+## Example
+
+    curl -s 'https://social-share.mazaryk.com/api/preview?url=example.com'
+
+## Response fields
+
+- requestedUrl, finalUrl, status, contentType — fetch outcome (finalUrl after redirects)
+- title — first <title> text, or null
+- meta — every <meta> tag as [{key, content}] in document order; key is the
+  property/name/itemprop attribute. HTML entities in content are NOT decoded.
+- links — [{rel, href, type}] for canonical, icon, shortcut icon, apple-touch-icon, alternate
+- image — share image check: {url, ok, status, contentType, contentLength} or null.
+  The first of og:image / og:image:url / og:image:secure_url / twitter:image is
+  resolved against finalUrl and fetched.
+- score — {total: 0-100, grade: "A".."F", label, checks: [{id, label, pts, pass}]}
+  Weighted completeness of share metadata. A check's pts count toward total only when pass is true.
+- platforms — [{name, level, note}] for Facebook, X (Twitter), LinkedIn, WhatsApp,
+  Discord, Telegram, Slack, Pinterest. level is "full" | "partial" | "none".
+- a11y — accessibility signals gathered from the full document:
+  {lang, images: {total, missingAlt, emptyAlt}, landmarks, headings,
+   aria: {attr: count}, roles: {role: count}, inputs: {total, labeled},
+   iframes: {total, withTitle}}
+
+## Errors
+
+- 400 — missing/invalid url parameter: {"error": "..."}
+- 502 — target could not be fetched: {"error": "..."}
+- 200 with "error" field — target fetched but not analyzable (e.g. non-HTML response)
+
+## Etiquette
+
+Responses are not cached (cache-control: no-store) — cache on your side if you
+re-check the same URL. Make requests sequentially rather than in parallel bursts.
+Analysis is limited to the first 3 MB of the target page.
+
+Source: https://github.com/Mazaryk-Web-Services/social-share
