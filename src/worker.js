@@ -74,7 +74,101 @@ async function preview(reqUrl) {
   let titleBuf = '';
   let titleDone = false;
 
+  const a11y = {
+    lang: null,
+    images: { total: 0, missingAlt: 0, emptyAlt: 0 },
+    landmarks: {},
+    headings: { h1: 0, h2: 0, h3: 0, h4: 0, h5: 0, h6: 0 },
+    aria: {},
+    roles: {},
+    inputs: { total: 0, labeled: 0 },
+    iframes: { total: 0, withTitle: 0 },
+  };
+  let labelDepth = 0;
+  let inputsAriaLabeled = 0;
+  let inputsWrapped = 0;
+  const inputIds = [];
+  const labelFor = new Set();
+
   const rewriter = new HTMLRewriter()
+    .on('*', {
+      element(el) {
+        const tag = el.tagName;
+        for (const [name, value] of el.attributes) {
+          if (name.startsWith('aria-')) {
+            a11y.aria[name] = (a11y.aria[name] || 0) + 1;
+          } else if (name === 'role') {
+            for (const r of value.trim().toLowerCase().split(/\s+/)) {
+              if (r) a11y.roles[r] = (a11y.roles[r] || 0) + 1;
+            }
+          }
+        }
+        switch (tag) {
+          case 'html':
+            if (a11y.lang == null) a11y.lang = el.getAttribute('lang');
+            break;
+          case 'img': {
+            a11y.images.total++;
+            const alt = el.getAttribute('alt');
+            if (alt == null) a11y.images.missingAlt++;
+            else if (!alt.trim()) a11y.images.emptyAlt++;
+            break;
+          }
+          case 'main':
+          case 'nav':
+          case 'header':
+          case 'footer':
+          case 'aside':
+            a11y.landmarks[tag] = true;
+            break;
+          case 'h1':
+          case 'h2':
+          case 'h3':
+          case 'h4':
+          case 'h5':
+          case 'h6':
+            a11y.headings[tag]++;
+            break;
+          case 'label': {
+            const f = el.getAttribute('for');
+            if (f) labelFor.add(f);
+            labelDepth++;
+            try {
+              el.onEndTag(() => {
+                labelDepth = Math.max(0, labelDepth - 1);
+              });
+            } catch {
+              labelDepth = Math.max(0, labelDepth - 1);
+            }
+            break;
+          }
+          case 'input':
+          case 'select':
+          case 'textarea': {
+            const type = (el.getAttribute('type') || 'text').toLowerCase();
+            if (tag === 'input' && ['hidden', 'submit', 'reset', 'button', 'image'].includes(type)) break;
+            a11y.inputs.total++;
+            if (
+              el.getAttribute('aria-label') ||
+              el.getAttribute('aria-labelledby') ||
+              el.getAttribute('title')
+            ) {
+              inputsAriaLabeled++;
+            } else if (labelDepth > 0) {
+              inputsWrapped++;
+            } else {
+              const id = el.getAttribute('id');
+              if (id) inputIds.push(id);
+            }
+            break;
+          }
+          case 'iframe':
+            a11y.iframes.total++;
+            if (el.getAttribute('title')) a11y.iframes.withTitle++;
+            break;
+        }
+      },
+    })
     .on('meta', {
       element(el) {
         const key =
@@ -123,6 +217,10 @@ async function preview(reqUrl) {
   }
 
   result.title = titleBuf.replace(/\s+/g, ' ').trim() || null;
+
+  a11y.inputs.labeled =
+    inputsAriaLabeled + inputsWrapped + inputIds.filter((id) => labelFor.has(id)).length;
+  result.a11y = a11y;
 
   // Check that the share image actually resolves.
   const metaMap = {};

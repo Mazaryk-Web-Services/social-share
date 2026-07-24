@@ -186,6 +186,37 @@ form.go button:disabled { opacity: 0.6; cursor: default; }
 .lv-partial .status-ic { color: var(--serious); }
 .lv-none .status-ic { color: var(--critical); }
 
+/* Accessibility */
+.a11y-chip {
+  display: inline-block; margin-left: 8px; padding: 1px 8px;
+  border: 1px solid var(--hairline); border-radius: 999px;
+  font-size: 12px; letter-spacing: 0; text-transform: none;
+  color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+.a11y-rows { display: flex; flex-direction: column; }
+.a11y-row {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 8px 0; border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+}
+.a11y-row:last-child { border-bottom: none; }
+.a11y-row .mark { font-weight: 800; flex: none; width: 18px; text-align: center; font-size: 13px; }
+.a11y-row.pass .mark { color: var(--good); }
+.a11y-row.warn .mark { color: var(--serious); }
+.a11y-row.fail .mark { color: var(--critical); }
+.a11y-row.info .mark, .a11y-row.na .mark { color: var(--muted); }
+.a11y-row .lbl { font-weight: 600; flex: none; width: 180px; }
+.a11y-row .det { color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+.a11y-row .det code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  background: var(--tile-band); padding: 1px 5px; border-radius: 4px;
+}
+@media (max-width: 700px) {
+  .a11y-row { flex-wrap: wrap; }
+  .a11y-row .lbl { width: auto; }
+  .a11y-row .det { flex-basis: 100%; padding-left: 28px; }
+}
+
 /* Meta tables */
 table.meta { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.meta td {
@@ -262,6 +293,11 @@ button.loading .spinner { display: inline-block; }
     <div class="card">
       <h2>Platform support</h2>
       <div class="platforms" id="platformGrid"></div>
+    </div>
+
+    <div class="card" id="a11yCard">
+      <h2>Accessibility <span class="a11y-chip" id="a11ySummary"></span></h2>
+      <div class="a11y-rows" id="a11yRows"></div>
     </div>
 
     <div class="grid">
@@ -356,6 +392,7 @@ function render(data) {
   renderFb(m, data, domain, imgUrl);
   renderX(m, data, domain, imgUrl);
   renderPlatforms(m, data);
+  renderA11y(data, m);
   renderTables(m, data);
 
   const info = [];
@@ -534,6 +571,114 @@ function renderPlatforms(m, data) {
       '<div><div class="name">' + esc(p.name) +
         ' <span class="status-ic" title="' + lbl[p.lv] + '">' + ic[p.lv] + ' ' + lbl[p.lv] + '</span></div>' +
       '<div class="note">' + esc(p.note) + '</div></div>' +
+    '</div>'
+  ).join('');
+}
+
+/* ---------- Accessibility ---------- */
+function renderA11y(data, m) {
+  const card = $('a11yCard');
+  const a = data.a11y;
+  if (!a) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const rows = [];
+  const row = (level, lbl, det) => rows.push({ level, lbl, det });
+
+  // Page language
+  if (a.lang && a.lang.trim()) {
+    row('pass', 'Page language', 'Declared as <code>lang="' + esc(a.lang) + '"</code> on <code>&lt;html&gt;</code>');
+  } else {
+    row('fail', 'Page language', 'No <code>lang</code> attribute on <code>&lt;html&gt;</code> — screen readers may use the wrong voice');
+  }
+
+  // Image alt text
+  const im = a.images;
+  if (im.total === 0) {
+    row('na', 'Image alt text', 'No <code>&lt;img&gt;</code> elements found');
+  } else {
+    const withAlt = im.total - im.missingAlt;
+    const dec = im.emptyAlt ? ' (' + im.emptyAlt + ' marked decorative with empty alt)' : '';
+    if (im.missingAlt === 0) {
+      row('pass', 'Image alt text', 'All ' + im.total + ' images have an <code>alt</code> attribute' + dec);
+    } else {
+      row(im.missingAlt / im.total > 0.25 ? 'fail' : 'warn', 'Image alt text',
+        withAlt + ' of ' + im.total + ' images have an <code>alt</code> attribute — ' + im.missingAlt + ' missing' + dec);
+    }
+  }
+
+  // Landmarks
+  const lm = a.landmarks || {}, rl = a.roles || {};
+  const marks = [
+    ['main', lm.main || rl.main],
+    ['nav', lm.nav || rl.navigation],
+    ['header', lm.header || rl.banner],
+    ['footer', lm.footer || rl.contentinfo],
+  ];
+  const found = marks.filter(([, v]) => v).map(([k]) => k);
+  const missing = marks.filter(([, v]) => !v).map(([k]) => k);
+  const lmDet = (found.length ? 'Found: ' + found.map((k) => '<code>' + k + '</code>').join(' ') : 'None found') +
+    (missing.length ? ' · missing: ' + missing.map((k) => '<code>' + k + '</code>').join(' ') : '');
+  row(marks[0][1] ? (missing.length ? 'warn' : 'pass') : (found.length ? 'warn' : 'fail'),
+    'Landmark regions', lmDet + (marks[0][1] ? '' : ' — no <code>main</code> region for screen readers to jump to'));
+
+  // Headings
+  const h = a.headings;
+  const profile = ['h1','h2','h3','h4','h5','h6'].filter((k) => h[k]).map((k) => '<code>' + k + '</code>×' + h[k]).join(' ');
+  if (h.h1 === 1) row('pass', 'Heading structure', 'Exactly one <code>h1</code> · ' + (profile || ''));
+  else if (h.h1 === 0) row('warn', 'Heading structure', 'No <code>h1</code> found' + (profile ? ' · ' + profile : ' — no headings at all'));
+  else row('warn', 'Heading structure', h.h1 + ' <code>h1</code> elements — should usually be one · ' + profile);
+
+  // Form labels
+  const inp = a.inputs;
+  if (inp.total === 0) {
+    row('na', 'Form labels', 'No form fields found');
+  } else if (inp.labeled >= inp.total) {
+    row('pass', 'Form labels', 'All ' + inp.total + ' form fields have an associated label or <code>aria-label</code>');
+  } else {
+    row(inp.labeled === 0 ? 'fail' : 'warn', 'Form labels',
+      inp.labeled + ' of ' + inp.total + ' form fields have an associated label or <code>aria-label</code>');
+  }
+
+  // Iframes
+  const ifr = a.iframes;
+  if (ifr.total > 0) {
+    if (ifr.withTitle === ifr.total) row('pass', 'Iframe titles', 'All ' + ifr.total + ' iframes have a <code>title</code>');
+    else row('warn', 'Iframe titles', ifr.withTitle + ' of ' + ifr.total + ' iframes have a <code>title</code> attribute');
+  }
+
+  // Zoom / viewport
+  const vp = m['viewport'] || '';
+  if (/user-scalable\s*=\s*(no|0)/i.test(vp) || /maximum-scale\s*=\s*(0?\.\d+|1(\.0*)?)(\s|,|$)/i.test(vp)) {
+    row('fail', 'Pinch-to-zoom', 'Viewport disables zoom: <code>' + esc(vp) + '</code>');
+  } else {
+    row('pass', 'Pinch-to-zoom', vp ? 'Viewport allows zooming' : 'No viewport restrictions');
+  }
+
+  // ARIA usage (informational)
+  const ariaEntries = Object.entries(a.aria || {}).sort((x, y) => y[1] - x[1]);
+  const ariaTotal = ariaEntries.reduce((s, [, n]) => s + n, 0);
+  const roleEntries = Object.entries(rl).sort((x, y) => y[1] - x[1]);
+  const top = (entries, n) => entries.slice(0, n).map(([k, c]) => '<code>' + esc(k) + '</code>×' + c).join(' ');
+  if (ariaTotal || roleEntries.length) {
+    let det = '';
+    if (ariaTotal) det += ariaTotal + ' ARIA attribute' + (ariaTotal === 1 ? '' : 's') + ': ' + top(ariaEntries, 6) + (ariaEntries.length > 6 ? ' …' : '');
+    if (roleEntries.length) det += (det ? '<br>' : '') + 'Roles: ' + top(roleEntries, 6) + (roleEntries.length > 6 ? ' …' : '');
+    row('info', 'ARIA usage', det);
+  } else {
+    row('info', 'ARIA usage', 'No ARIA attributes or roles found — fine if the page relies on semantic HTML, a gap if it has custom widgets');
+  }
+
+  const scored = rows.filter((r) => ['pass', 'warn', 'fail'].includes(r.level));
+  const passed = scored.filter((r) => r.level === 'pass').length;
+  $('a11ySummary').textContent = passed + '/' + scored.length + ' checks pass';
+
+  const ic = { pass: '✓', warn: '!', fail: '✕', info: 'i', na: '–' };
+  $('a11yRows').innerHTML = rows.map((r) =>
+    '<div class="a11y-row ' + r.level + '">' +
+      '<span class="mark">' + ic[r.level] + '</span>' +
+      '<span class="lbl">' + r.lbl + '</span>' +
+      '<span class="det">' + r.det + '</span>' +
     '</div>'
   ).join('');
 }
