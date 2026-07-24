@@ -324,6 +324,14 @@ async function run(url) {
   }
 }
 
+// HTMLRewriter returns attribute values with entities intact — decode them once here.
+const decEl = document.createElement('textarea');
+function dec(s) {
+  if (s == null || !/[&]/.test(s)) return s;
+  decEl.innerHTML = s.replace(/</g, '&lt;');
+  return decEl.value;
+}
+
 function firstMeta(data) {
   const m = {};
   for (const { key, content } of data.meta) {
@@ -334,6 +342,8 @@ function firstMeta(data) {
 }
 
 function render(data) {
+  data.title = dec(data.title);
+  data.meta = data.meta.map(({ key, content }) => ({ key, content: dec(content) }));
   const m = firstMeta(data);
   const finalUrl = new URL(data.finalUrl);
   const domain = finalUrl.hostname.replace(/^www\./, '');
