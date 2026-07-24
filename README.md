@@ -8,6 +8,8 @@ Paste a URL, hit Go, and see how that page looks when shared on social platforms
 - All Open Graph / Twitter / basic HTML share metadata, with missing tags flagged
 - Per-platform support indicators (Facebook, X, LinkedIn, WhatsApp, Discord, Telegram, Slack, Pinterest)
 - A 0–100 shareability score with a per-check breakdown
+- An accessibility snapshot: `lang`, image alt coverage, landmarks, heading
+  structure, form labels, iframe titles, zoom restrictions, and ARIA usage
 
 ## How it works
 
