@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Social Share Preview</title>
+<meta name="description" content="Preview how any URL looks when shared on Facebook, X, LinkedIn and more — and get a shareability score.">
+<meta property="og:title" content="Social Share Preview">
+<meta property="og:description" content="Preview how any URL looks when shared on Facebook, X, LinkedIn and more — and get a shareability score.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://social-share.mazaryk.com/">
+<meta property="og:site_name" content="Social Share Preview">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%97%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --hairline: #e1e0d9;
+  --border: rgba(11, 11, 11, 0.10);
+  --accent: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --tile-band: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hairline: #2c2c2a;
+    --border: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --tile-band: #242628;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+header h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+header p { margin: 0 0 24px; color: var(--ink-2); }
+
+form.go {
+  display: flex; gap: 8px; margin-bottom: 28px;
+}
+form.go input[type=url], form.go input[type=text] {
+  flex: 1; padding: 11px 14px; font: inherit;
+  border: 1px solid var(--hairline); border-radius: 10px;
+  background: var(--surface); color: var(--ink);
+}
+form.go input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+form.go button {
+  padding: 11px 26px; font: inherit; font-weight: 600;
+  border: none; border-radius: 10px; cursor: pointer;
+  background: var(--accent); color: #fff;
+}
+form.go button:disabled { opacity: 0.6; cursor: default; }
+
+.error {
+  display: none; margin-bottom: 24px; padding: 12px 16px;
+  border: 1px solid var(--critical); border-radius: 10px;
+  color: var(--critical); background: color-mix(in srgb, var(--critical) 7%, var(--surface));
+}
+
+#results { display: none; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.card h2 {
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px;
+}
+
+/* Score */
+.score-card { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.score-ring { position: relative; width: 132px; height: 132px; flex: none; }
+.score-ring svg { transform: rotate(-90deg); }
+.score-ring .num {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+}
+.score-ring .num b { font-size: 34px; line-height: 1; letter-spacing: -0.02em; }
+.score-ring .num span { font-size: 12px; color: var(--muted); }
+.score-side { flex: 1; min-width: 240px; }
+.score-label { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.score-label .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.score-side p { margin: 6px 0 0; color: var(--ink-2); }
+.fetched { margin-top: 10px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+
+.checks { margin: 18px 0 0; padding: 0; list-style: none; width: 100%;
+  columns: 2; column-gap: 28px; }
+@media (max-width: 700px) { .checks { columns: 1; } }
+.checks li {
+  display: flex; gap: 8px; align-items: baseline; padding: 3px 0;
+  font-size: 13px; break-inside: avoid;
+}
+.checks .mark { font-weight: 700; flex: none; width: 16px; text-align: center; }
+.checks .pass .mark { color: var(--good); }
+.checks .fail .mark { color: var(--critical); }
+.checks .fail { color: var(--muted); }
+.checks .pts { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Facebook tile */
+.fb-tile {
+  border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden;
+  max-width: 500px; background: var(--surface);
+}
+.fb-img, .x-img {
+  aspect-ratio: 1.91 / 1; width: 100%; object-fit: cover; display: block;
+  background: var(--tile-band);
+}
+.img-missing {
+  aspect-ratio: 1.91 / 1; display: flex; align-items: center; justify-content: center;
+  background: var(--tile-band); color: var(--muted); font-size: 13px;
+}
+.fb-band { background: var(--tile-band); padding: 10px 12px; border-top: 1px solid var(--hairline); }
+.fb-domain { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.fb-title {
+  font-size: 16px; font-weight: 600; margin: 2px 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fb-desc {
+  font-size: 14px; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* X card */
+.x-card {
+  border: 1px solid var(--hairline); border-radius: 16px; overflow: hidden;
+  max-width: 500px; position: relative; background: var(--surface);
+}
+.x-card.small { display: flex; }
+.x-card.small .x-img, .x-card.small .img-missing {
+  width: 130px; height: 130px; aspect-ratio: 1; flex: none; border-right: 1px solid var(--hairline);
+}
+.x-card.small .x-text { padding: 12px; align-self: center; min-width: 0; }
+.x-domain-pill {
+  position: absolute; left: 12px; bottom: 12px;
+  background: rgba(0, 0, 0, 0.72); color: #fff; font-size: 12px;
+  padding: 2px 8px; border-radius: 5px; max-width: 80%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.x-text .x-domain { font-size: 13px; color: var(--muted); }
+.x-text .x-title { font-size: 15px; font-weight: 600; margin: 2px 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.x-text .x-desc { font-size: 13px; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.x-from { margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+/* Platforms */
+.platforms { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.platform {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 12px;
+}
+.platform .badge {
+  width: 30px; height: 30px; border-radius: 8px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 15px; color: #fff;
+}
+.platform .name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.platform .status-ic { font-size: 12px; font-weight: 800; }
+.platform .note { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.lv-full .status-ic { color: var(--good); }
+.lv-partial .status-ic { color: var(--serious); }
+.lv-none .status-ic { color: var(--critical); }
+
+/* Meta tables */
+table.meta { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.meta td {
+  padding: 6px 10px 6px 0; border-bottom: 1px solid var(--hairline);
+  vertical-align: top; overflow-wrap: anywhere;
+}
+table.meta tr:last-child td { border-bottom: none; }
+table.meta td.k { width: 34%; color: var(--ink-2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+td .missing { color: var(--critical); font-style: italic; }
+td .extra-note { color: var(--muted); }
+.img-check { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+.img-check .ok { color: var(--good); font-weight: 600; }
+.img-check .bad { color: var(--critical); font-weight: 600; }
+
+footer { margin-top: 8px; font-size: 13px; color: var(--muted); text-align: center; }
+footer a { color: inherit; }
+
+.spinner {
+  display: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
+  animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: -3px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+button.loading .spinner { display: inline-block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Social Share Preview</h1>
+    <p>See how a page looks when shared on social platforms — and how complete its share metadata is.</p>
+  </header>
+
+  <form class="go" id="goForm">
+    <input type="text" id="urlInput" placeholder="https://example.com/some-page" autocomplete="url" spellcheck="false" autofocus required>
+    <button type="submit" id="goBtn"><span class="spinner"></span>Go</button>
+  </form>
+
+  <div class="error" id="errorBox"></div>
+
+  <div id="results">
+    <div class="card">
+      <h2>Shareability score</h2>
+      <div class="score-card">
+        <div class="score-ring">
+          <svg width="132" height="132" viewBox="0 0 132 132" aria-hidden="true">
+            <circle cx="66" cy="66" r="58" fill="none" stroke="var(--hairline)" stroke-width="10"/>
+            <circle id="ringArc" cx="66" cy="66" r="58" fill="none" stroke="var(--good)" stroke-width="10"
+                    stroke-linecap="round" stroke-dasharray="364.4" stroke-dashoffset="364.4"/>
+          </svg>
+          <div class="num"><b id="scoreNum">0</b><span>/ 100</span></div>
+        </div>
+        <div class="score-side">
+          <div class="score-label"><span class="dot" id="scoreDot"></span><span id="scoreGrade"></span></div>
+          <p id="scoreBlurb"></p>
+          <div class="fetched" id="fetchedInfo"></div>
+        </div>
+        <ul class="checks" id="checkList"></ul>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Facebook preview</h2>
+        <div class="fb-tile" id="fbTile"></div>
+      </div>
+      <div class="card">
+        <h2>X (Twitter) preview</h2>
+        <div id="xWrap"></div>
+        <div class="img-check" id="xCardNote"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Platform support</h2>
+      <div class="platforms" id="platformGrid"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Open Graph tags</h2>
+        <table class="meta" id="ogTable"></table>
+        <div class="img-check" id="imgCheck"></div>
+      </div>
+      <div class="card">
+        <h2>Twitter / X tags</h2>
+        <table class="meta" id="twTable"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Basic HTML</h2>
+      <table class="meta" id="basicTable"></table>
+    </div>
+  </div>
+
+  <footer>Fetches pages as a share crawler would (server-side). Nothing is stored. <span id="footSep">·</span> <a href="https://github.com/Mazaryk-Web-Services/social-share">Source</a></footer>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const form = $('goForm'), input = $('urlInput'), btn = $('goBtn');
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const url = input.value.trim();
+  if (!url) return;
+  const q = new URLSearchParams({ url });
+  history.replaceState(null, '', '?' + q.toString());
+  run(url);
+});
+
+const initial = new URLSearchParams(location.search).get('url');
+if (initial) { input.value = initial; run(initial); }
+
+async function run(url) {
+  btn.disabled = true; btn.classList.add('loading');
+  $('errorBox').style.display = 'none';
+  try {
+    const res = await fetch('/api/preview?url=' + encodeURIComponent(url));
+    const data = await res.json();
+    if (!res.ok || (data.error && !data.meta?.length && !data.title)) {
+      throw new Error(data.error || ('Request failed (' + res.status + ')'));
+    }
+    render(data);
+  } catch (e) {
+    $('results').style.display = 'none';
+    const box = $('errorBox');
+    box.textContent = e.message;
+    box.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.classList.remove('loading');
+  }
+}
+
+function firstMeta(data) {
+  const m = {};
+  for (const { key, content } of data.meta) {
+    const k = key.toLowerCase();
+    if (!(k in m)) m[k] = content;
+  }
+  return m;
+}
+
+function render(data) {
+  const m = firstMeta(data);
+  const finalUrl = new URL(data.finalUrl);
+  const domain = finalUrl.hostname.replace(/^www\./, '');
+  const title = m['og:title'] || m['twitter:title'] || data.title || '';
+  const desc = m['og:description'] || m['twitter:description'] || m['description'] || '';
+  const imgOk = data.image && data.image.ok;
+  const imgUrl = imgOk ? data.image.url : null;
+
+  renderScore(data, m);
+  renderFb(m, data, domain, imgUrl);
+  renderX(m, data, domain, imgUrl);
+  renderPlatforms(m, data);
+  renderTables(m, data);
+
+  const info = [];
+  info.push('Fetched ' + esc(data.finalUrl));
+  info.push('HTTP ' + data.status);
+  if (data.finalUrl.replace(/\/$/, '') !== data.requestedUrl.replace(/\/$/, '')) info.push('redirected');
+  $('fetchedInfo').innerHTML = info.join(' &nbsp;·&nbsp; ');
+
+  $('results').style.display = 'block';
+}
+
+/* ---------- Score ---------- */
+function buildChecks(data, m) {
+  const has = (k) => !!(m[k] && m[k].trim());
+  return [
+    { label: 'og:title', pts: 12, pass: has('og:title') },
+    { label: 'og:description', pts: 12, pass: has('og:description') },
+    { label: 'og:image', pts: 16, pass: has('og:image') || has('og:image:url') },
+    { label: 'Share image loads', pts: 8, pass: !!(data.image && data.image.ok) },
+    { label: 'og:url', pts: 4, pass: has('og:url') },
+    { label: 'og:type', pts: 4, pass: has('og:type') },
+    { label: 'og:site_name', pts: 4, pass: has('og:site_name') },
+    { label: 'og:image size hints', pts: 4, pass: has('og:image:width') && has('og:image:height') },
+    { label: 'twitter:card', pts: 10, pass: has('twitter:card') },
+    { label: 'X title (or og fallback)', pts: 4, pass: has('twitter:title') || has('og:title') },
+    { label: 'X description (or og fallback)', pts: 4, pass: has('twitter:description') || has('og:description') },
+    { label: 'X image (or og fallback)', pts: 6, pass: has('twitter:image') || has('og:image') },
+    { label: '<title> tag', pts: 6, pass: !!(data.title && data.title.trim()) },
+    { label: 'meta description', pts: 6, pass: has('description') },
+  ];
+}
+
+function renderScore(data, m) {
+  const checks = buildChecks(data, m);
+  const score = checks.reduce((s, c) => s + (c.pass ? c.pts : 0), 0);
+  let grade, blurb, color;
+  if (score >= 90) { grade = 'A — Excellent'; color = 'var(--good)'; blurb = 'Share metadata is essentially complete. Links will render rich previews everywhere.'; }
+  else if (score >= 75) { grade = 'B — Good'; color = 'var(--good)'; blurb = 'Solid coverage with a few gaps. Previews will render well on most platforms.'; }
+  else if (score >= 60) { grade = 'C — Fair'; color = 'var(--warning)'; blurb = 'The basics are there, but several platforms will show degraded or generic previews.'; }
+  else if (score >= 40) { grade = 'D — Poor'; color = 'var(--serious)'; blurb = 'Minimal share metadata. Most platforms will fall back to bare titles or nothing at all.'; }
+  else { grade = 'F — Missing'; color = 'var(--critical)'; blurb = 'Little to no social metadata found. Shared links will look broken or empty.'; }
+
+  $('scoreNum').textContent = score;
+  $('scoreGrade').textContent = grade;
+  $('scoreBlurb').textContent = blurb;
+  $('scoreDot').style.background = color;
+
+  const C = 2 * Math.PI * 58;
+  const arc = $('ringArc');
+  arc.style.stroke = color;
+  arc.setAttribute('stroke-dasharray', C);
+  arc.setAttribute('stroke-dashoffset', C);
+  requestAnimationFrame(() => {
+    arc.style.transition = 'stroke-dashoffset 0.8s ease';
+    arc.setAttribute('stroke-dashoffset', C * (1 - score / 100));
+  });
+
+  $('checkList').innerHTML = checks.map((c) =>
+    '<li class="' + (c.pass ? 'pass' : 'fail') + '">' +
+    '<span class="mark">' + (c.pass ? '✓' : '✕') + '</span>' +
+    '<span>' + esc(c.label) + '</span>' +
+    '<span class="pts">' + (c.pass ? c.pts : 0) + '/' + c.pts + '</span></li>'
+  ).join('');
+}
+
+/* ---------- Facebook tile ---------- */
+function imgOrPlaceholder(imgUrl, cls, msg) {
+  if (imgUrl) {
+    return '<img class="' + cls + '" src="' + esc(imgUrl) + '" alt="" ' +
+      'onerror="this.outerHTML=\'<div class=&quot;img-missing&quot;>Image failed to load</div>\'">';
+  }
+  return '<div class="img-missing">' + esc(msg) + '</div>';
+}
+
+function renderFb(m, data, domain, imgUrl) {
+  const title = m['og:title'] || data.title || domain;
+  const desc = m['og:description'] || m['description'] || '';
+  $('fbTile').innerHTML =
+    imgOrPlaceholder(imgUrl, 'fb-img', 'No og:image — Facebook shows a blank or scraped image') +
+    '<div class="fb-band">' +
+      '<div class="fb-domain">' + esc(domain) + '</div>' +
+      '<div class="fb-title">' + esc(title) + '</div>' +
+      (desc ? '<div class="fb-desc">' + esc(desc) + '</div>' : '') +
+    '</div>';
+}
+
+/* ---------- X card ---------- */
+function renderX(m, data, domain, imgUrl) {
+  const card = (m['twitter:card'] || '').toLowerCase();
+  const title = m['twitter:title'] || m['og:title'] || data.title || domain;
+  const desc = m['twitter:description'] || m['og:description'] || m['description'] || '';
+  const xImg = imgUrl; // same server-validated image (twitter:image falls back to og:image)
+  const wrap = $('xWrap');
+  const note = $('xCardNote');
+  note.textContent = '';
+
+  if (!card && !m['og:title'] && !m['twitter:title']) {
+    wrap.innerHTML = '<div class="img-missing" style="border:1px solid var(--hairline);border-radius:16px">No card — X will show a plain link</div>';
+    return;
+  }
+
+  if (card === 'summary') {
+    wrap.innerHTML =
+      '<div class="x-card small">' +
+        imgOrPlaceholder(xImg, 'x-img', 'No image') +
+        '<div class="x-text">' +
+          '<div class="x-domain">' + esc(domain) + '</div>' +
+          '<div class="x-title">' + esc(title) + '</div>' +
+          (desc ? '<div class="x-desc">' + esc(desc) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+  } else {
+    wrap.innerHTML =
+      '<div class="x-card">' +
+        imgOrPlaceholder(xImg, 'x-img', 'No image — X shows a text-only link') +
+        (xImg ? '<div class="x-domain-pill">' + esc(domain) + '</div>' : '') +
+      '</div>' +
+      '<div class="x-from">From ' + esc(domain) + '</div>';
+  }
+
+  if (!card) {
+    note.innerHTML = '<span class="bad">!</span> No <code>twitter:card</code> tag — X may not render a card at all. Shown using Open Graph fallback.';
+  }
+}
+
+/* ---------- Platforms ---------- */
+function renderPlatforms(m, data) {
+  const has = (k) => !!(m[k] && m[k].trim());
+  const ogTitle = has('og:title'), ogDesc = has('og:description'),
+        ogImg = has('og:image') || has('og:image:url'),
+        twCard = has('twitter:card'),
+        htmlTitle = !!(data.title && data.title.trim());
+
+  function level(present, needed) {
+    if (present >= needed) return 'full';
+    if (present > 0) return 'partial';
+    return 'none';
+  }
+
+  const ogCount = [ogTitle, ogDesc, ogImg].filter(Boolean).length;
+
+  let xLevel, xNote;
+  if (twCard) {
+    const xBits = [has('twitter:title') || ogTitle, has('twitter:image') || ogImg].filter(Boolean).length;
+    xLevel = xBits === 2 ? 'full' : 'partial';
+    xNote = xBits === 2 ? 'twitter:card + full data' : 'twitter:card present, missing title or image';
+  } else if (ogCount > 0) {
+    xLevel = 'partial'; xNote = 'No twitter:card — card may not render';
+  } else {
+    xLevel = 'none'; xNote = 'No twitter:card or Open Graph tags';
+  }
+
+  const platforms = [
+    { name: 'Facebook', bg: '#1877f2', ch: 'f', lv: level(ogCount, 3),
+      note: ogCount === 3 ? 'Full Open Graph data' : ogCount ? 'Partial Open Graph data' : (htmlTitle ? 'Falls back to page title' : 'Nothing to show') },
+    { name: 'X (Twitter)', bg: '#000000', ch: '𝕏', lv: xLevel, note: xNote },
+    { name: 'LinkedIn', bg: '#0a66c2', ch: 'in', lv: level([ogTitle, ogImg].filter(Boolean).length, 2),
+      note: ogTitle && ogImg ? 'Uses Open Graph tags' : ogTitle || ogImg ? 'Missing og:title or og:image' : 'Falls back to page scrape' },
+    { name: 'WhatsApp', bg: '#25d366', ch: 'W', lv: level([ogTitle, ogImg].filter(Boolean).length, 2),
+      note: ogTitle && ogImg ? 'Rich link preview' : ogTitle ? 'Text-only preview' : 'Plain link' },
+    { name: 'Discord', bg: '#5865f2', ch: 'D', lv: level(ogCount, 3),
+      note: ogCount === 3 ? 'Full embed' : ogCount ? 'Partial embed' : 'Plain link' },
+    { name: 'Telegram', bg: '#26a5e4', ch: 'T', lv: level([ogTitle, ogImg].filter(Boolean).length, 2),
+      note: ogTitle && ogImg ? 'Rich link preview' : ogTitle ? 'Text-only preview' : 'Plain link' },
+    { name: 'Slack', bg: '#611f69', ch: 'S', lv: level([ogTitle || htmlTitle, ogDesc || has('description')].filter(Boolean).length, 2),
+      note: ogTitle ? 'Unfurls with Open Graph' : htmlTitle ? 'Unfurls from HTML title' : 'No unfurl' },
+    { name: 'Pinterest', bg: '#e60023', ch: 'P', lv: ogImg ? (ogTitle ? 'full' : 'partial') : 'none',
+      note: ogImg ? 'Pinnable with rich data' : 'Needs og:image' },
+  ];
+
+  const ic = { full: '✓', partial: '!', none: '✕' };
+  const lbl = { full: 'Supported', partial: 'Partial', none: 'Missing' };
+  $('platformGrid').innerHTML = platforms.map((p) =>
+    '<div class="platform lv-' + p.lv + '">' +
+      '<div class="badge" style="background:' + p.bg + '">' + p.ch + '</div>' +
+      '<div><div class="name">' + esc(p.name) +
+        ' <span class="status-ic" title="' + lbl[p.lv] + '">' + ic[p.lv] + ' ' + lbl[p.lv] + '</span></div>' +
+      '<div class="note">' + esc(p.note) + '</div></div>' +
+    '</div>'
+  ).join('');
+}
+
+/* ---------- Meta tables ---------- */
+function tableRows(keys, m, extraPrefix, allMeta) {
+  const rows = [];
+  const shown = new Set();
+  for (const k of keys) {
+    shown.add(k);
+    const v = m[k];
+    rows.push('<tr><td class="k">' + esc(k) + '</td><td>' +
+      (v ? esc(v) : '<span class="missing">missing</span>') + '</td></tr>');
+  }
+  const extras = [];
+  const seen = new Set();
+  for (const { key, content } of allMeta) {
+    const k = key.toLowerCase();
+    if (k.startsWith(extraPrefix) && !shown.has(k) && !seen.has(k)) {
+      seen.add(k);
+      extras.push('<tr><td class="k">' + esc(k) + '</td><td>' + esc(content) + '</td></tr>');
+    }
+  }
+  return rows.join('') + extras.join('');
+}
+
+function renderTables(m, data) {
+  $('ogTable').innerHTML = tableRows(
+    ['og:title', 'og:description', 'og:image', 'og:url', 'og:type', 'og:site_name', 'og:image:width', 'og:image:height', 'og:image:alt'],
+    m, 'og:', data.meta);
+
+  $('twTable').innerHTML = tableRows(
+    ['twitter:card', 'twitter:title', 'twitter:description', 'twitter:image', 'twitter:site', 'twitter:creator'],
+    m, 'twitter:', data.meta);
+
+  const canonical = (data.links.find((l) => l.rel === 'canonical') || {}).href;
+  const icon = (data.links.find((l) => l.rel === 'icon' || l.rel === 'shortcut icon') || {}).href;
+  const touchIcon = (data.links.find((l) => l.rel === 'apple-touch-icon') || {}).href;
+  const basic = [
+    ['<title>', data.title],
+    ['meta description', m['description']],
+    ['canonical', canonical],
+    ['favicon', icon],
+    ['apple-touch-icon', touchIcon],
+    ['theme-color', m['theme-color']],
+  ];
+  $('basicTable').innerHTML = basic.map(([k, v]) =>
+    '<tr><td class="k">' + esc(k) + '</td><td>' +
+    (v ? esc(v) : '<span class="missing">missing</span>') + '</td></tr>').join('');
+
+  const ic = $('imgCheck');
+  if (data.image) {
+    if (data.image.ok) {
+      const kb = data.image.contentLength ? Math.round(data.image.contentLength / 1024) + ' KB' : 'size unknown';
+      ic.innerHTML = '<span class="ok">✓ Image OK</span> — HTTP ' + data.image.status +
+        ', ' + esc(data.image.contentType || 'unknown type') + ', ' + kb;
+    } else {
+      ic.innerHTML = '<span class="bad">✕ Image failed</span> — ' +
+        esc(data.image.error || ('HTTP ' + data.image.status));
+    }
+  } else {
+    ic.innerHTML = '';
+  }
+}
+</script>
+</body>
+</html>
